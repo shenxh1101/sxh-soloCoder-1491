@@ -110,6 +110,7 @@ class RemnantMatcher:
                 
                 for rem in result.remnants:
                     if rem.area >= min_remnant_area:
+                        rem.is_manual = False
                         available_remnants.append(rem)
             else:
                 unmatched_products.append(product)
@@ -124,7 +125,11 @@ class ProductionScheduler:
         self.remnant_matcher = RemnantMatcher(inventory.saw_kerf)
         self.scheduled_orders: List[ScheduleResult] = []
         self.scheduled_order_ids: List[str] = []
-        self._initial_snapshot = inventory.snapshot()
+        self._initial_snapshot = inventory.manual_snapshot()
+
+    def update_initial_snapshot(self) -> None:
+        if not self.scheduled_orders:
+            self._initial_snapshot = self.inventory.manual_snapshot()
 
     def process_order(self, order: Order) -> ScheduleResult:
         result = ScheduleResult(order=order)
@@ -146,6 +151,7 @@ class ProductionScheduler:
                     
                     for rem_piece in cut_result.remnants:
                         if rem_piece.area >= self.inventory.min_remnant_area:
+                            rem_piece.is_manual = False
                             self.inventory.add_remnant(rem_piece)
                             result.new_remnants.append(rem_piece)
             
@@ -175,6 +181,7 @@ class ProductionScheduler:
                 
                 for rem in cut_result.remnants:
                     if rem.area >= self.inventory.min_remnant_area:
+                        rem.is_manual = False
                         self.inventory.add_remnant(rem)
                         result.new_remnants.append(rem)
                 

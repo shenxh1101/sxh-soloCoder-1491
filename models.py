@@ -23,6 +23,7 @@ class GlassSheet:
     x: float = 0.0
     y: float = 0.0
     parent_id: Optional[str] = None
+    is_manual: bool = True
 
     @property
     def area(self) -> float:
@@ -164,6 +165,14 @@ class Inventory:
         return {
             'originals': deepcopy(self.originals),
             'remnants': deepcopy(self.remnants),
+            'saw_kerf': self.saw_kerf,
+            'min_remnant_area': self.min_remnant_area,
+        }
+
+    def manual_snapshot(self) -> Dict[str, Any]:
+        return {
+            'originals': deepcopy([s for s in self.originals if s.is_manual]),
+            'remnants': deepcopy([r for r in self.remnants if r.is_manual]),
             'saw_kerf': self.saw_kerf,
             'min_remnant_area': self.min_remnant_area,
         }

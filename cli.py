@@ -39,8 +39,8 @@ class GlassCuttingCLI:
         if thickness <= 0:
             print(f"  ❌ 厚度无效: {thickness}mm，必须大于0")
             return None
-        if quantity <= 0:
-            print(f"  ❌ 数量无效: {quantity}，必须大于0")
+        if quantity < 1:
+            print(f"  ❌ 数量无效: {quantity}，必须大于等于1")
             return None
         
         if length < 10 or width < 10:
@@ -68,8 +68,8 @@ class GlassCuttingCLI:
             print(f"  ❌ {field_name}格式错误: 必须是{'整数' if is_integer else '数字'}")
             return None
         
-        if val <= min_val:
-            print(f"  ❌ {field_name}无效: {val}，必须大于 {min_val}")
+        if val < min_val:
+            print(f"  ❌ {field_name}无效: {val}，必须大于等于 {min_val}")
             return None
         
         if max_val is not None and val > max_val:
@@ -190,10 +190,12 @@ class GlassCuttingCLI:
                 length=length,
                 width=width,
                 thickness=thickness,
-                glass_type=GlassType.ORIGINAL
+                glass_type=GlassType.ORIGINAL,
+                is_manual=True
             )
             self.inventory.add_original(sheet)
         
+        self.scheduler.update_initial_snapshot()
         print(f"\n✅ 成功添加 {quantity} 块原片玻璃: {length}×{width}×{thickness}mm")
         input("\n按回车键继续...")
 
@@ -231,6 +233,7 @@ class GlassCuttingCLI:
         removed = self.inventory.remove_original(sheet_id)
         
         if removed:
+            self.scheduler.update_initial_snapshot()
             print(f"\n成功删除原片: {removed}")
         else:
             print(f"\n未找到编号为 {sheet_id} 的原片。")
@@ -263,12 +266,16 @@ class GlassCuttingCLI:
                     length=length,
                     width=width,
                     thickness=thickness,
-                    glass_type=GlassType.ORIGINAL
+                    glass_type=GlassType.ORIGINAL,
+                    is_manual=True
                 )
                 self.inventory.add_original(sheet)
             
             count += quantity
             print(f"  ✅ 成功添加 {quantity} 块: {length}×{width}×{thickness}mm")
+        
+        if count > 0:
+            self.scheduler.update_initial_snapshot()
         
         print(f"\n共添加 {count} 块原片玻璃。")
         input("\n按回车键继续...")
@@ -347,7 +354,8 @@ class GlassCuttingCLI:
             length=length,
             width=width,
             thickness=thickness,
-            glass_type=GlassType.REMNANT
+            glass_type=GlassType.REMNANT,
+            is_manual=True
         )
         
         if remnant.area < self.inventory.min_remnant_area:
@@ -359,6 +367,7 @@ class GlassCuttingCLI:
                 return
         
         self.inventory.add_remnant(remnant)
+        self.scheduler.update_initial_snapshot()
         print(f"\n✅ 成功添加余料: {remnant}")
         input("\n按回车键继续...")
 
@@ -375,6 +384,7 @@ class GlassCuttingCLI:
         removed = self.inventory.remove_remnant(rem_id)
         
         if removed:
+            self.scheduler.update_initial_snapshot()
             print(f"\n成功删除余料: {removed}")
         else:
             print(f"\n未找到编号为 {rem_id} 的余料。")
@@ -810,7 +820,8 @@ class GlassCuttingCLI:
             for _ in range(qty):
                 sheet = GlassSheet(
                     length=length, width=width, thickness=thickness,
-                    glass_type=GlassType.ORIGINAL
+                    glass_type=GlassType.ORIGINAL,
+                    is_manual=True
                 )
                 self.inventory.add_original(sheet)
         
@@ -822,7 +833,8 @@ class GlassCuttingCLI:
         for length, width, thickness in remnants:
             rem = GlassSheet(
                 length=length, width=width, thickness=thickness,
-                glass_type=GlassType.REMNANT
+                glass_type=GlassType.REMNANT,
+                is_manual=True
             )
             self.inventory.add_remnant(rem)
         
