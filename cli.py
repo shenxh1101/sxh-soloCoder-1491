@@ -596,6 +596,7 @@ class GlassCuttingCLI:
         print("  1. 导出全部报表")
         print("  2. 导出库存报表")
         print("  3. 导出指定订单报表")
+        print("  4. 导出批量验收报表(含CSV)")
         print("  0. 返回")
         print()
         
@@ -629,9 +630,29 @@ class GlassCuttingCLI:
                     ReportGenerator.export_csv(sr, csv_path)
                     print(f"\n订单报表已导出到: {filepath}")
                     print(f"CSV文件已导出到: {csv_path}")
+                    print("\n订单报表预览:")
+                    print(report)
                     break
             else:
                 print(f"\n未找到订单 {order_id}")
+
+        elif choice == '4':
+            from models import Inventory
+            import copy
+            inv_before = Inventory(
+                saw_kerf=self.inventory.saw_kerf,
+                min_remnant_area=self.inventory.min_remnant_area
+            )
+            for s in self.scheduler._initial_snapshot['originals']:
+                inv_before.originals.append(copy.deepcopy(s))
+            for r in self.scheduler._initial_snapshot['remnants']:
+                inv_before.remnants.append(copy.deepcopy(r))
+            
+            batch_file = ReportGenerator.generate_batch_verification(
+                self.scheduler.scheduled_orders, inv_before, self.inventory, output_dir="reports"
+            )
+            print(f"\n批量验收报表已导出到: {batch_file}")
+            print(f"CSV文件已导出到: {batch_file.replace('.txt', '.csv')}")
         
         elif choice == '0':
             return
@@ -763,6 +784,27 @@ class GlassCuttingCLI:
         print("\n" + "-" * 70)
         print("紧急订单排产结果:")
         self.display_schedule_result(urgent_result)
+
+        os.makedirs("reports", exist_ok=True)
+        summary_file = ReportGenerator.generate_urgent_insert_summary(
+            urgent_result, old_schedules, rescheduled, affected_sheets, self.inventory, output_dir="reports"
+        )
+        print(f"\n📊 紧急插单汇总报表已导出: {summary_file}")
+        
+        from models import Inventory
+        inv_before = Inventory(
+            saw_kerf=self.inventory.saw_kerf,
+            min_remnant_area=self.inventory.min_remnant_area
+        )
+        for s in self.scheduler._initial_snapshot['originals']:
+            inv_before.originals.append(__import__('copy').deepcopy(s))
+        for r in self.scheduler._initial_snapshot['remnants']:
+            inv_before.remnants.append(__import__('copy').deepcopy(r))
+        
+        batch_file = ReportGenerator.generate_batch_verification(
+            self.scheduler.scheduled_orders, inv_before, self.inventory, output_dir="reports"
+        )
+        print(f"📊 批量验收报表已导出: {batch_file}")
         
         input("\n按回车键继续...")
 
