@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from enum import Enum
 import uuid
 from datetime import datetime
+from copy import deepcopy
 
 
 class GlassType(Enum):
@@ -159,6 +160,25 @@ class Inventory:
         originals = [s for s in self.originals if s.thickness == thickness]
         return remnants, originals
 
+    def snapshot(self) -> Dict[str, Any]:
+        return {
+            'originals': deepcopy(self.originals),
+            'remnants': deepcopy(self.remnants),
+            'saw_kerf': self.saw_kerf,
+            'min_remnant_area': self.min_remnant_area,
+        }
+
+    def restore(self, snapshot: Dict[str, Any]) -> None:
+        self.originals = deepcopy(snapshot['originals'])
+        self.remnants = deepcopy(snapshot['remnants'])
+        self.saw_kerf = snapshot['saw_kerf']
+        self.min_remnant_area = snapshot['min_remnant_area']
+
+    @property
+    def total_area(self) -> float:
+        return sum(s.area for s in self.originals) + sum(s.area for s in self.remnants)
+
     def __repr__(self) -> str:
         return (f"Inventory: {len(self.originals)} original sheets, "
-                f"{len(self.remnants)} remnants, saw_kerf={self.saw_kerf}mm")
+                f"{len(self.remnants)} remnants, saw_kerf={self.saw_kerf}mm, "
+                f"total_area={self.total_area:.0f}mm²")

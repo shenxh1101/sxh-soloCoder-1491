@@ -124,6 +124,7 @@ class ProductionScheduler:
         self.remnant_matcher = RemnantMatcher(inventory.saw_kerf)
         self.scheduled_orders: List[ScheduleResult] = []
         self.scheduled_order_ids: List[str] = []
+        self._initial_snapshot = inventory.snapshot()
 
     def process_order(self, order: Order) -> ScheduleResult:
         result = ScheduleResult(order=order)
@@ -252,19 +253,15 @@ class ProductionScheduler:
         urgent_order.is_urgent = True
         
         all_scheduled_orders = list(self.scheduled_orders)
+        
         affected_original_sheets: List[GlassSheet] = []
         affected_remnant_sheets: List[GlassSheet] = []
-        
         for schedule in all_scheduled_orders:
             affected_original_sheets.extend(schedule.used_originals)
             affected_remnant_sheets.extend(schedule.used_remnants)
-            
-            for sheet in schedule.used_originals:
-                self.inventory.add_original(sheet)
-            for rem in schedule.used_remnants:
-                self.inventory.add_remnant(rem)
-            for rem in schedule.new_remnants:
-                self.inventory.remove_remnant(rem.id)
+        all_affected_sheets = affected_original_sheets + affected_remnant_sheets
+        
+        self.inventory.restore(self._initial_snapshot)
         
         self.scheduled_orders.clear()
         self.scheduled_order_ids.clear()
@@ -276,7 +273,7 @@ class ProductionScheduler:
             new_result = self.process_order(schedule.order)
             rescheduled_orders.append(new_result)
         
-        all_affected_sheets = affected_original_sheets + affected_remnant_sheets
+        self._initial_snapshot = self.inventory.snapshot()
         
         return urgent_result, all_scheduled_orders, rescheduled_orders, all_affected_sheets
 

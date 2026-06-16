@@ -21,20 +21,25 @@ class ReportGenerator:
         lines.append(f"{'项目':<30} {'数值':<20} {'单位':<15}")
         lines.append("-" * 80)
         
-        total_product_area = order.total_product_area() / 1e6
+        total_demand_area = order.total_product_area() / 1e6
+        total_produced_area = schedule_result.total_product_area / 1e6
+        total_unfulfilled_area = sum(p.area for p in schedule_result.unfulfilled_products) / 1e6
         total_original_area = schedule_result.total_original_area / 1e6
         total_remnant_used = schedule_result.total_remnant_used_area / 1e6
         total_remnant_gen = schedule_result.total_remnant_generated / 1e6
         total_input = total_original_area + total_remnant_used
         overall_util = schedule_result.overall_utilization
         
-        lines.append(f"{'订单产品总面积':<30} {total_product_area:<20.4f} {'平方米':<15}")
+        lines.append(f"{'订单需求总面积':<30} {total_demand_area:<20.4f} {'平方米':<15}")
+        lines.append(f"{'实际生产总面积':<30} {total_produced_area:<20.4f} {'平方米':<15}")
+        lines.append(f"{'未满足产品面积':<30} {total_unfulfilled_area:<20.4f} {'平方米':<15}")
         lines.append(f"{'消耗原片总面积':<30} {total_original_area:<20.4f} {'平方米':<15}")
         lines.append(f"{'消耗余料总面积':<30} {total_remnant_used:<20.4f} {'平方米':<15}")
         lines.append(f"{'总投入面积':<30} {total_input:<20.4f} {'平方米':<15}")
         lines.append(f"{'产生余料总面积':<30} {total_remnant_gen:<20.4f} {'平方米':<15}")
         lines.append("-" * 80)
-        lines.append(f"{'综合利用率':<30} {overall_util * 100:<20.2f} {'%':<15}")
+        lines.append(f"{'订单满足率':<30} {(total_produced_area / total_demand_area * 100 if total_demand_area > 0 else 0):<20.2f} {'%':<15}")
+        lines.append(f"{'综合利用率(基于实际生产)':<30} {overall_util * 100:<20.2f} {'%':<15}")
         lines.append("-" * 80)
         
         lines.append("\n原片消耗明细:")
@@ -208,19 +213,25 @@ class ReportGenerator:
             
             f.write("耗材统计\n")
             f.write("项目,数值,单位\n")
-            total_product_area = schedule_result.order.total_product_area() / 1e6
+            total_demand_area = schedule_result.order.total_product_area() / 1e6
+            total_produced_area = schedule_result.total_product_area / 1e6
+            total_unfulfilled_area = sum(p.area for p in schedule_result.unfulfilled_products) / 1e6
             total_original_area = schedule_result.total_original_area / 1e6
             total_remnant_used = schedule_result.total_remnant_used_area / 1e6
             total_remnant_gen = schedule_result.total_remnant_generated / 1e6
             total_input = total_original_area + total_remnant_used
             overall_util = schedule_result.overall_utilization
+            fulfillment_rate = (total_produced_area / total_demand_area * 100) if total_demand_area > 0 else 0
             
-            f.write(f"订单产品总面积,{total_product_area:.4f},平方米\n")
+            f.write(f"订单需求总面积,{total_demand_area:.4f},平方米\n")
+            f.write(f"实际生产总面积,{total_produced_area:.4f},平方米\n")
+            f.write(f"未满足产品面积,{total_unfulfilled_area:.4f},平方米\n")
             f.write(f"消耗原片总面积,{total_original_area:.4f},平方米\n")
             f.write(f"消耗余料总面积,{total_remnant_used:.4f},平方米\n")
             f.write(f"总投入面积,{total_input:.4f},平方米\n")
             f.write(f"产生余料总面积,{total_remnant_gen:.4f},平方米\n")
-            f.write(f"综合利用率,{overall_util * 100:.2f},%\n")
+            f.write(f"订单满足率,{fulfillment_rate:.2f},%\n")
+            f.write(f"综合利用率(基于实际生产),{overall_util * 100:.2f},%\n")
             f.write("\n")
             
             f.write("原片消耗明细\n")
@@ -237,5 +248,12 @@ class ReportGenerator:
                 for rem in schedule_result.new_remnants:
                     area = rem.area / 1e6
                     f.write(f"{rem.id},{rem.length}×{rem.width},{rem.thickness},1,{area:.4f},({rem.x:.0f},{rem.y:.0f})\n")
+            
+            if schedule_result.unfulfilled_products:
+                f.write("\n")
+                f.write("未满足产品明细\n")
+                f.write("尺寸(mm),厚度(mm),需求量(块)\n")
+                for prod in schedule_result.unfulfilled_products:
+                    f.write(f"{prod.length}×{prod.width},{prod.thickness},{prod.quantity}\n")
         
         return filepath

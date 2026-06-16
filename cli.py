@@ -1,5 +1,5 @@
 import sys
-from typing import List
+from typing import List, Optional, Tuple
 from models import GlassSheet, Order, Inventory, GlassType
 from scheduler import ProductionScheduler
 from visualization import CuttingDiagram
