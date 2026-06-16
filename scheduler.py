@@ -33,52 +33,89 @@ class RemnantMatcher:
 
     def match_remnants_to_products(self,
                                     remnants: List[GlassSheet],
-                                    products: List[GlassSheet]) -> Tuple[Dict[str, List[GlassSheet]], List[GlassSheet]]:
-        remnant_usage: Dict[str, List[GlassSheet]] = {}
+                                    products: List[GlassSheet],
+                                    min_remnant_area: float = 10000.0) -> Tuple[Dict[str, CuttingResult], List[GlassSheet]]:
+        remnant_cutting_results: Dict[str, CuttingResult] = {}
         unmatched_products: List[GlassSheet] = []
         
         available_remnants = deepcopy(remnants)
+        remaining_products = deepcopy(products)
         
-        for product in products:
+        while remaining_products:
+            product = remaining_products[0]
             if product.quantity <= 0:
+                remaining_products.pop(0)
                 continue
                 
-            remaining_qty = product.quantity
+            best_remnant = self.find_best_remnant(product, available_remnants)
             
-            while remaining_qty > 0:
-                best_remnant = self.find_best_remnant(product, available_remnants)
-                
-                if best_remnant is None:
-                    break
-                    
-                result = find_best_packing(best_remnant, [product], self.saw_kerf)
-                
-                if result.cut_pieces:
-                    if best_remnant.id not in remnant_usage:
-                        remnant_usage[best_remnant.id] = []
-                    remnant_usage[best_remnant.id].append(result.cut_pieces[0])
-                    remaining_qty -= len(result.cut_pieces)
-                    
-                    available_remnants = [r for r in available_remnants if r.id != best_remnant.id]
-                    
-                    for rem in result.remnants:
-                        if rem.area > 10000:
-                            available_remnants.append(rem)
-                else:
-                    break
+            if best_remnant is None:
+                unmatched_products.append(product)
+                remaining_products.pop(0)
+                continue
             
-            if remaining_qty > 0:
-                remaining_product = GlassSheet(
-                    length=product.length,
-                    width=product.width,
-                    thickness=product.thickness,
-                    quantity=remaining_qty,
-                    glass_type=GlassType.PRODUCT,
-                    id=product.id
-                )
-                unmatched_products.append(remaining_product)
+            all_products_for_remnant = []
+            for p in remaining_products:
+                if p.thickness == product.thickness and p.quantity > 0:
+                    all_products_for_remnant.append(p)
+            
+            result = find_best_packing(best_remnant, all_products_for_remnant, self.saw_kerf)
+            
+            if result.cut_pieces:
+                remnant_cutting_results[best_remnant.id] = result
+                
+                cut_dict = {}
+                for piece in result.cut_pieces:
+                    key = (piece.length, piece.width, piece.thickness)
+                    alt_key = (piece.width, piece.length, piece.thickness)
+                    if key not in cut_dict:
+                        cut_dict[key] = 0
+                    cut_dict[key] += 1
+                
+                new_remaining = []
+                for p in remaining_products:
+                    if p.thickness != product.thickness:
+                        new_remaining.append(p)
+                        continue
+                        
+                    key = (p.length, p.width, p.thickness)
+                    alt_key = (p.width, p.length, p.thickness)
+                    cut_count = cut_dict.get(key, 0) + cut_dict.get(alt_key, 0)
+                    remaining_qty = p.quantity - cut_count
+                    
+                    if remaining_qty > 0:
+                        new_p = GlassSheet(
+                            length=p.length,
+                            width=p.width,
+                            thickness=p.thickness,
+                            quantity=remaining_qty,
+                            glass_type=GlassType.PRODUCT,
+                            id=p.id
+                        )
+                        new_remaining.append(new_p)
+                    elif remaining_qty < 0:
+                        new_p = GlassSheet(
+                            length=p.length,
+                            width=p.width,
+                            thickness=p.thickness,
+                            quantity=0,
+                            glass_type=GlassType.PRODUCT,
+                            id=p.id
+                        )
+                        new_remaining.append(new_p)
+                
+                remaining_products = new_remaining
+                
+                available_remnants = [r for r in available_remnants if r.id != best_remnant.id]
+                
+                for rem in result.remnants:
+                    if rem.area >= min_remnant_area:
+                        available_remnants.append(rem)
+            else:
+                unmatched_products.append(product)
+                remaining_products.pop(0)
         
-        return remnant_usage, unmatched_products
+        return remnant_cutting_results, unmatched_products
 
 
 class ProductionScheduler:
@@ -96,21 +133,20 @@ class ProductionScheduler:
         for thickness, products in products_by_thickness.items():
             remnants, originals = self.inventory.get_available_sheets(thickness)
             
-            remnant_usage, unmatched = self.remnant_matcher.match_remnants_to_products(
-                remnants, products
+            remnant_cutting_results, unmatched = self.remnant_matcher.match_remnants_to_products(
+                remnants, products, self.inventory.min_remnant_area
             )
             
-            for rem_id, cut_pieces in remnant_usage.items():
+            for rem_id, cut_result in remnant_cutting_results.items():
                 rem = self.inventory.remove_remnant(rem_id)
                 if rem:
                     result.used_remnants.append(rem)
-                    
-                    cut_result = CuttingResult(
-                        original_sheet=rem,
-                        cut_pieces=cut_pieces
-                    )
-                    cut_result.calculate_utilization()
                     result.cutting_results.append(cut_result)
+                    
+                    for rem_piece in cut_result.remnants:
+                        if rem_piece.area >= self.inventory.min_remnant_area:
+                            self.inventory.add_remnant(rem_piece)
+                            result.new_remnants.append(rem_piece)
             
             current_products = unmatched
             
@@ -212,37 +248,37 @@ class ProductionScheduler:
         
         return remaining
 
-    def insert_urgent_order(self, urgent_order: Order) -> Tuple[ScheduleResult, List[ScheduleResult]]:
+    def insert_urgent_order(self, urgent_order: Order) -> Tuple[ScheduleResult, List[ScheduleResult], List[ScheduleResult], List[GlassSheet]]:
         urgent_order.is_urgent = True
         
-        affected_orders: List[ScheduleResult] = []
-        affected_sheets: List[GlassSheet] = []
+        all_scheduled_orders = list(self.scheduled_orders)
+        affected_original_sheets: List[GlassSheet] = []
+        affected_remnant_sheets: List[GlassSheet] = []
         
-        for schedule in self.scheduled_orders:
-            if schedule.unfulfilled_products:
-                affected_orders.append(schedule)
-                affected_sheets.extend(schedule.used_originals)
-                affected_sheets.extend(schedule.used_remnants)
-                
-                for sheet in schedule.used_originals:
-                    self.inventory.add_original(sheet)
-                for rem in schedule.used_remnants:
-                    self.inventory.add_remnant(rem)
-                for rem in schedule.new_remnants:
-                    self.inventory.remove_remnant(rem.id)
+        for schedule in all_scheduled_orders:
+            affected_original_sheets.extend(schedule.used_originals)
+            affected_remnant_sheets.extend(schedule.used_remnants)
+            
+            for sheet in schedule.used_originals:
+                self.inventory.add_original(sheet)
+            for rem in schedule.used_remnants:
+                self.inventory.add_remnant(rem)
+            for rem in schedule.new_remnants:
+                self.inventory.remove_remnant(rem.id)
         
-        for schedule in affected_orders:
-            self.scheduled_orders.remove(schedule)
-            self.scheduled_order_ids.remove(schedule.order.id)
+        self.scheduled_orders.clear()
+        self.scheduled_order_ids.clear()
         
         urgent_result = self.process_order(urgent_order)
         
-        rescheduled = []
-        for schedule in affected_orders:
+        rescheduled_orders = []
+        for schedule in all_scheduled_orders:
             new_result = self.process_order(schedule.order)
-            rescheduled.append(new_result)
+            rescheduled_orders.append(new_result)
         
-        return urgent_result, rescheduled
+        all_affected_sheets = affected_original_sheets + affected_remnant_sheets
+        
+        return urgent_result, all_scheduled_orders, rescheduled_orders, all_affected_sheets
 
     def get_schedule_summary(self) -> Dict:
         total_original_used = sum(s.total_original_area for s in self.scheduled_orders)

@@ -13,6 +13,71 @@ class GlassCuttingCLI:
         self.scheduler = ProductionScheduler(self.inventory)
         self.current_order_id = 0
 
+    def _validate_glass_input(self, input_str: str, is_product: bool = False) -> Optional[Tuple[float, float, float, int]]:
+        parts = input_str.split(',')
+        if len(parts) != 4:
+            print(f"  ❌ 格式错误: 需要4个参数（长度,宽度,厚度,数量），实际输入 {len(parts)} 个")
+            print(f"     正确示例: 2440,1830,12,5")
+            return None
+        
+        try:
+            length = float(parts[0].strip())
+            width = float(parts[1].strip())
+            thickness = float(parts[2].strip())
+            quantity = int(parts[3].strip())
+        except ValueError as e:
+            print(f"  ❌ 数值格式错误: {e}")
+            print(f"     长度、宽度、厚度必须是数字，数量必须是整数")
+            return None
+        
+        if length <= 0:
+            print(f"  ❌ 长度无效: {length}mm，必须大于0")
+            return None
+        if width <= 0:
+            print(f"  ❌ 宽度无效: {width}mm，必须大于0")
+            return None
+        if thickness <= 0:
+            print(f"  ❌ 厚度无效: {thickness}mm，必须大于0")
+            return None
+        if quantity <= 0:
+            print(f"  ❌ 数量无效: {quantity}，必须大于0")
+            return None
+        
+        if length < 10 or width < 10:
+            print(f"  ⚠️  尺寸过小: {length}×{width}mm，可能无法正常切割")
+            confirm = input(f"     确认继续? (y/n): ").strip().lower()
+            if confirm != 'y':
+                return None
+        
+        if is_product and (length > 5000 or width > 5000):
+            print(f"  ⚠️  产品尺寸过大: {length}×{width}mm，可能超过常规原片尺寸")
+            confirm = input(f"     确认继续? (y/n): ").strip().lower()
+            if confirm != 'y':
+                return None
+        
+        return (length, width, thickness, quantity)
+
+    def _validate_single_value(self, value: float, field_name: str, min_val: float = 0.001, 
+                                max_val: float = None, is_integer: bool = False) -> Optional[float]:
+        try:
+            if is_integer:
+                val = int(value)
+            else:
+                val = float(value)
+        except ValueError:
+            print(f"  ❌ {field_name}格式错误: 必须是{'整数' if is_integer else '数字'}")
+            return None
+        
+        if val <= min_val:
+            print(f"  ❌ {field_name}无效: {val}，必须大于 {min_val}")
+            return None
+        
+        if max_val is not None and val > max_val:
+            print(f"  ❌ {field_name}无效: {val}，必须小于等于 {max_val}")
+            return None
+        
+        return val
+
     def clear_screen(self):
         os.system('cls' if os.name == 'nt' else 'clear')
 
@@ -93,24 +158,43 @@ class GlassCuttingCLI:
     def add_original_sheet(self):
         self.print_header()
         print("【添加原片玻璃】")
-        try:
-            length = float(input("请输入原片长度 (mm): "))
-            width = float(input("请输入原片宽度 (mm): "))
-            thickness = float(input("请输入原片厚度 (mm): "))
-            quantity = int(input("请输入数量: "))
-            
-            for _ in range(quantity):
-                sheet = GlassSheet(
-                    length=length,
-                    width=width,
-                    thickness=thickness,
-                    glass_type=GlassType.ORIGINAL
-                )
-                self.inventory.add_original(sheet)
-            
-            print(f"\n成功添加 {quantity} 块原片玻璃。")
-        except ValueError:
-            print("\n输入错误，请输入有效的数值。")
+        print("请依次输入以下参数:")
+        
+        length = input("\n请输入原片长度 (mm): ").strip()
+        length = self._validate_single_value(length, "长度", min_val=10)
+        if length is None:
+            input("\n按回车键继续...")
+            return
+        
+        width = input("请输入原片宽度 (mm): ").strip()
+        width = self._validate_single_value(width, "宽度", min_val=10)
+        if width is None:
+            input("\n按回车键继续...")
+            return
+        
+        thickness = input("请输入原片厚度 (mm): ").strip()
+        thickness = self._validate_single_value(thickness, "厚度", min_val=1)
+        if thickness is None:
+            input("\n按回车键继续...")
+            return
+        
+        quantity = input("请输入数量: ").strip()
+        quantity = self._validate_single_value(quantity, "数量", min_val=1, is_integer=True)
+        if quantity is None:
+            input("\n按回车键继续...")
+            return
+        
+        quantity = int(quantity)
+        for _ in range(quantity):
+            sheet = GlassSheet(
+                length=length,
+                width=width,
+                thickness=thickness,
+                glass_type=GlassType.ORIGINAL
+            )
+            self.inventory.add_original(sheet)
+        
+        print(f"\n✅ 成功添加 {quantity} 块原片玻璃: {length}×{width}×{thickness}mm")
         input("\n按回车键继续...")
 
     def view_original_inventory(self):
@@ -161,35 +245,30 @@ class GlassCuttingCLI:
         print()
         
         count = 0
+        line_num = 0
         while True:
-            line = input(f"第 {count + 1} 行: ").strip()
+            line_num += 1
+            line = input(f"第 {line_num} 行: ").strip()
             if not line:
                 break
             
-            try:
-                parts = line.split(',')
-                if len(parts) != 4:
-                    print("  格式错误，跳过。")
-                    continue
-                
-                length = float(parts[0].strip())
-                width = float(parts[1].strip())
-                thickness = float(parts[2].strip())
-                quantity = int(parts[3].strip())
-                
-                for _ in range(quantity):
-                    sheet = GlassSheet(
-                        length=length,
-                        width=width,
-                        thickness=thickness,
-                        glass_type=GlassType.ORIGINAL
-                    )
-                    self.inventory.add_original(sheet)
-                
-                count += quantity
-                print(f"  成功添加 {quantity} 块。")
-            except ValueError:
-                print("  数值错误，跳过。")
+            validate_result = self._validate_glass_input(line)
+            if validate_result is None:
+                continue
+            
+            length, width, thickness, quantity = validate_result
+            
+            for _ in range(quantity):
+                sheet = GlassSheet(
+                    length=length,
+                    width=width,
+                    thickness=thickness,
+                    glass_type=GlassType.ORIGINAL
+                )
+                self.inventory.add_original(sheet)
+            
+            count += quantity
+            print(f"  ✅ 成功添加 {quantity} 块: {length}×{width}×{thickness}mm")
         
         print(f"\n共添加 {count} 块原片玻璃。")
         input("\n按回车键继续...")
@@ -244,30 +323,43 @@ class GlassCuttingCLI:
     def add_remnant_manual(self):
         self.print_header()
         print("【手动添加余料】")
-        try:
-            length = float(input("请输入余料长度 (mm): "))
-            width = float(input("请输入余料宽度 (mm): "))
-            thickness = float(input("请输入余料厚度 (mm): "))
-            
-            remnant = GlassSheet(
-                length=length,
-                width=width,
-                thickness=thickness,
-                glass_type=GlassType.REMNANT
-            )
-            
-            if remnant.area < self.inventory.min_remnant_area:
-                confirm = input(f"\n余料面积 ({remnant.area:.0f} mm²) 小于最小入库面积 "
-                              f"({self.inventory.min_remnant_area} mm²)，是否仍要添加? (y/n): ")
-                if confirm.lower() != 'y':
-                    print("\n已取消。")
-                    input("\n按回车键继续...")
-                    return
-            
-            self.inventory.add_remnant(remnant)
-            print(f"\n成功添加余料: {remnant}")
-        except ValueError:
-            print("\n输入错误。")
+        print("请依次输入以下参数:")
+        
+        length = input("\n请输入余料长度 (mm): ").strip()
+        length = self._validate_single_value(length, "长度", min_val=10)
+        if length is None:
+            input("\n按回车键继续...")
+            return
+        
+        width = input("请输入余料宽度 (mm): ").strip()
+        width = self._validate_single_value(width, "宽度", min_val=10)
+        if width is None:
+            input("\n按回车键继续...")
+            return
+        
+        thickness = input("请输入余料厚度 (mm): ").strip()
+        thickness = self._validate_single_value(thickness, "厚度", min_val=1)
+        if thickness is None:
+            input("\n按回车键继续...")
+            return
+        
+        remnant = GlassSheet(
+            length=length,
+            width=width,
+            thickness=thickness,
+            glass_type=GlassType.REMNANT
+        )
+        
+        if remnant.area < self.inventory.min_remnant_area:
+            confirm = input(f"\n⚠️  余料面积 ({remnant.area:.0f} mm²) 小于最小入库面积 "
+                          f"({self.inventory.min_remnant_area} mm²)，是否仍要添加? (y/n): ").strip().lower()
+            if confirm != 'y':
+                print("\n已取消。")
+                input("\n按回车键继续...")
+                return
+        
+        self.inventory.add_remnant(remnant)
+        print(f"\n✅ 成功添加余料: {remnant}")
         input("\n按回车键继续...")
 
     def remove_remnant(self):
@@ -329,29 +421,21 @@ class GlassCuttingCLI:
             if not line:
                 break
             
-            try:
-                parts = line.split(',')
-                if len(parts) != 4:
-                    print("  格式错误，跳过。")
-                    continue
-                
-                length = float(parts[0].strip())
-                width = float(parts[1].strip())
-                thickness = float(parts[2].strip())
-                quantity = int(parts[3].strip())
-                
-                product = GlassSheet(
-                    length=length,
-                    width=width,
-                    thickness=thickness,
-                    quantity=quantity,
-                    glass_type=GlassType.PRODUCT
-                )
-                products.append(product)
-                idx += 1
-                print(f"  已添加: {length}×{width}×{thickness}mm × {quantity}块")
-            except ValueError:
-                print("  数值错误，跳过。")
+            validate_result = self._validate_glass_input(line, is_product=True)
+            if validate_result is None:
+                continue
+            
+            length, width, thickness, quantity = validate_result
+            product = GlassSheet(
+                length=length,
+                width=width,
+                thickness=thickness,
+                quantity=quantity,
+                glass_type=GlassType.PRODUCT
+            )
+            products.append(product)
+            idx += 1
+            print(f"  ✅ 已添加: {length}×{width}×{thickness}mm × {quantity}块")
         
         if not products:
             print("\n未添加任何产品，订单已取消。")
@@ -547,7 +631,8 @@ class GlassCuttingCLI:
     def urgent_insert_menu(self):
         self.print_header()
         print("【紧急插单】")
-        print("⚠️  紧急插单会将当前未完全满足的订单回滚并重新排产。")
+        print("⚠️  紧急插单会将所有已排产订单回滚并重新排产。")
+        print("   所有已分配的原片和余料将被释放，按紧急程度重新分配。")
         print()
         
         if not self.scheduler.scheduled_orders:
@@ -573,29 +658,21 @@ class GlassCuttingCLI:
             if not line:
                 break
             
-            try:
-                parts = line.split(',')
-                if len(parts) != 4:
-                    print("  格式错误，跳过。")
-                    continue
-                
-                length = float(parts[0].strip())
-                width = float(parts[1].strip())
-                thickness = float(parts[2].strip())
-                quantity = int(parts[3].strip())
-                
-                product = GlassSheet(
-                    length=length,
-                    width=width,
-                    thickness=thickness,
-                    quantity=quantity,
-                    glass_type=GlassType.PRODUCT
-                )
-                products.append(product)
-                idx += 1
-                print(f"  已添加: {length}×{width}×{thickness}mm × {quantity}块")
-            except ValueError:
-                print("  数值错误，跳过。")
+            validate_result = self._validate_glass_input(line, is_product=True)
+            if validate_result is None:
+                continue
+            
+            length, width, thickness, quantity = validate_result
+            product = GlassSheet(
+                length=length,
+                width=width,
+                thickness=thickness,
+                quantity=quantity,
+                glass_type=GlassType.PRODUCT
+            )
+            products.append(product)
+            idx += 1
+            print(f"  已添加: {length}×{width}×{thickness}mm × {quantity}块")
         
         if not products:
             print("\n未添加任何产品，操作已取消。")
@@ -608,20 +685,70 @@ class GlassCuttingCLI:
         print("【紧急插单处理中...】")
         print()
         
-        urgent_result, rescheduled = self.scheduler.insert_urgent_order(urgent_order)
+        urgent_result, old_schedules, rescheduled, affected_sheets = self.scheduler.insert_urgent_order(urgent_order)
         
         print("=" * 70)
         print(" " * 25 + "紧急插单结果")
         print("=" * 70)
         
-        print(f"\n受影响的订单数: {len(rescheduled)} 个")
-        if rescheduled:
-            print("受影响的订单:")
-            for r in rescheduled:
+        print(f"\n📋 受影响的订单总数: {len(old_schedules)} 个")
+        if old_schedules:
+            print("\n受影响的订单明细:")
+            print(f"{'原订单号':<12} {'原利用率':<12} {'新利用率':<12} {'原原片数':<10} {'新原片数':<10} {'状态':<15}")
+            print("-" * 71)
+            
+            for old, new in zip(old_schedules, rescheduled):
+                old_util = old.overall_utilization * 100
+                new_util = new.overall_utilization * 100
+                old_sheet_count = len(old.used_originals) + len(old.used_remnants)
+                new_sheet_count = len(new.used_originals) + len(new.used_remnants)
+                
+                util_change = new_util - old_util
+                util_str = f"{new_util:.2f}% ({util_change:+.2f}%)"
+                
                 status = "正常"
-                if r.unfulfilled_products:
-                    status = f"部分缺货 ({sum(p.quantity for p in r.unfulfilled_products)}块)"
-                print(f"  - {r.order.id}: {status}")
+                if new.unfulfilled_products:
+                    status = f"部分缺货 ({sum(p.quantity for p in new.unfulfilled_products)}块)"
+                
+                print(f"{old.order.id:<12} {old_util:.2f}%{'':<4} {util_str:<12} {old_sheet_count:<10} {new_sheet_count:<10} {status:<15}")
+        
+        print(f"\n📦 受影响的玻璃原片总数: {len(affected_sheets)} 块")
+        if affected_sheets:
+            print("\n受影响的原片明细:")
+            sheets_by_type = {}
+            for sheet in affected_sheets:
+                t = sheet.thickness
+                if t not in sheets_by_type:
+                    sheets_by_type[t] = []
+                sheets_by_type[t].append(sheet)
+            
+            for t, sheets in sorted(sheets_by_type.items()):
+                print(f"  {t}mm 厚度: {len(sheets)} 块")
+                for s in sheets[:3]:
+                    sheet_type = "余料" if s.glass_type == GlassType.REMNANT else "原片"
+                    print(f"    - [{s.id}] {s.length}×{s.width}mm ({sheet_type})")
+                if len(sheets) > 3:
+                    print(f"    ... 还有 {len(sheets) - 3} 块")
+        
+        view_details = input("\n查看受影响订单的详细变化? (y/n): ").strip().lower()
+        if view_details == 'y':
+            for old, new in zip(old_schedules, rescheduled):
+                self.print_header()
+                print(f"订单 {old.order.id} - 排产变化对比")
+                print("=" * 70)
+                print(f"\n原排产方案:")
+                print(f"  使用原片: {len(old.used_originals)} 块, 使用余料: {len(old.used_remnants)} 块")
+                print(f"  利用率: {old.overall_utilization * 100:.2f}%")
+                if old.unfulfilled_products:
+                    print(f"  未满足: {sum(p.quantity for p in old.unfulfilled_products)} 块")
+                
+                print(f"\n新排产方案:")
+                print(f"  使用原片: {len(new.used_originals)} 块, 使用余料: {len(new.used_remnants)} 块")
+                print(f"  利用率: {new.overall_utilization * 100:.2f}%")
+                if new.unfulfilled_products:
+                    print(f"  未满足: {sum(p.quantity for p in new.unfulfilled_products)} 块")
+                
+                input("\n按回车查看下一个订单...")
         
         print("\n" + "-" * 70)
         print("紧急订单排产结果:")
@@ -641,34 +768,26 @@ class GlassCuttingCLI:
             choice = input("请选择操作: ").strip()
             
             if choice == '1':
-                try:
-                    new_kerf = float(input("请输入新的锯缝宽度 (mm): "))
-                    if new_kerf >= 0:
-                        self.inventory.saw_kerf = new_kerf
-                        self.scheduler.remnant_matcher.saw_kerf = new_kerf
-                        print(f"\n锯缝宽度已设置为 {new_kerf}mm")
-                    else:
-                        print("\n锯缝宽度不能为负数。")
-                except ValueError:
-                    print("\n输入错误。")
+                new_kerf = input("请输入新的锯缝宽度 (mm): ").strip()
+                new_kerf = self._validate_single_value(new_kerf, "锯缝宽度", min_val=0, max_val=50)
+                if new_kerf is not None:
+                    self.inventory.saw_kerf = new_kerf
+                    self.scheduler.remnant_matcher.saw_kerf = new_kerf
+                    print(f"\n✅ 锯缝宽度已设置为 {new_kerf}mm")
                 input("\n按回车键继续...")
             
             elif choice == '2':
-                try:
-                    new_min = float(input("请输入新的最小余料入库面积 (mm²): "))
-                    if new_min >= 0:
-                        self.inventory.min_remnant_area = new_min
-                        print(f"\n最小入库面积已设置为 {new_min} mm²")
-                    else:
-                        print("\n面积不能为负数。")
-                except ValueError:
-                    print("\n输入错误。")
+                new_min = input("请输入新的最小余料入库面积 (mm²): ").strip()
+                new_min = self._validate_single_value(new_min, "最小入库面积", min_val=0, max_val=1000000)
+                if new_min is not None:
+                    self.inventory.min_remnant_area = new_min
+                    print(f"\n✅ 最小入库面积已设置为 {new_min} mm²")
                 input("\n按回车键继续...")
             
             elif choice == '0':
                 break
             else:
-                print("\n无效选择。")
+                print("\n❌ 无效选择。")
                 input("\n按回车键继续...")
 
     def load_sample_data(self):

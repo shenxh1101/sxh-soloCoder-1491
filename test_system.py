@@ -202,9 +202,10 @@ def test_urgent_insert():
     urgent_order = Order(id="URG001", products=urgent_products, is_urgent=True)
     
     print(f"\n插入紧急订单 URG001...")
-    urgent_result, rescheduled = scheduler.insert_urgent_order(urgent_order)
+    urgent_result, old_schedules, rescheduled, affected_sheets = scheduler.insert_urgent_order(urgent_order)
     
     print(f"  受影响订单数: {len(rescheduled)}")
+    print(f"  受影响原片数: {len(affected_sheets)}")
     print(f"  紧急订单利用率: {urgent_result.overall_utilization * 100:.2f}%")
     
     if rescheduled:
@@ -214,7 +215,7 @@ def test_urgent_insert():
                 status += f" (仍缺货{sum(p.quantity for p in r.unfulfilled_products)}块)"
             print(f"  - {r.order.id}: {status}")
     
-    success = urgent_result is not None
+    success = urgent_result is not None and len(old_schedules) > 0
     print()
     return success
 
